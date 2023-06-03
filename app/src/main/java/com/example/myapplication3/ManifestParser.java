@@ -46,7 +46,7 @@ public class ManifestParser {
     }
 
     private Hashtable<String, Integer> createFeatureDict(){
-
+        return null;
     }
     private float[] parseManifest(String manifest) {
         Hashtable<String, Integer> featuresTable = new Hashtable<String, Integer>();
