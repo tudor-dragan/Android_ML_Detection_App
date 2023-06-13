@@ -1,76 +1,52 @@
 package com.example.myapplication3
 
-import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
-import android.annotation.SuppressLint
 import android.app.DownloadManager
 import android.content.Context
 import android.net.Uri
-import android.os.AsyncTask
 import android.os.Bundle
 import android.os.Environment
 import android.util.Log
 import android.widget.Button
-import android.widget.Toast
+import android.widget.EditText
 import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.RecyclerView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
-import net.dongliu.apk.parser.ApkFile
-import org.xmlpull.v1.XmlPullParserFactory
-import org.xmlpull.v1.XmlPullParser
 import java.io.File
-import java.io.IOException
-import java.net.HttpURLConnection
 import java.net.URL
-import java.nio.FloatBuffer
 import java.text.SimpleDateFormat
-
-
-
+import kotlin.math.log
 
 
 class MainActivity : AppCompatActivity() {
     private val SERVER_URL = "http://192.168.0.103:5000"
-    private var features = HashMap<String, Float>()
-    private val apps = ArrayList<ApplicationListModel>()
+    private var featuresMap = LinkedHashMap<String, Float>()
+    private var featuresArray = ArrayList<String>()
+    private val apps = ArrayList<ApplicationModel>()
+    private var selectedApps = BooleanArray(0)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
-        features = readFeatures()
+        // creates the empty hash map of features that the model will use
         apps.addAll(getApps())
+        featuresMap = readFeatures()
+        featuresArray = readFeaturesArray()
+        selectedApps = BooleanArray(apps.size)
+
         setDefaultSharedPreferences()
         setUpRecyclerView(apps)
         updateButtonListener()
-//        GlobalScope.launch(Dispatchers.IO) {
-//            isUpdateNeeded()
-//        }
-
-        //getPermissions()
-        //getInferenceResult()
+        scanButtonListener()
     }
 
-    private fun setUpRecyclerView(apps : ArrayList<ApplicationListModel>) {
+    private fun setUpRecyclerView(apps : ArrayList<ApplicationModel>) {
         val recyclerView = findViewById<RecyclerView>(R.id.app_list)
-        recyclerView.adapter = ListItemAdapter(this, apps)
+        recyclerView.adapter = ListItemAdapter(this, apps, selectedApps)
         recyclerView.setHasFixedSize(true)
-    }
-
-    private fun getApps(): Collection<ApplicationListModel> {
-        val appList = ArrayList<ApplicationListModel>()
-        // get package manager
-        val pm = packageManager
-        // get a list of installed apps.
-        val apps = pm.getInstalledApplications(0)
-        for(app in apps) {
-            if(app.sourceDir.startsWith("/data/app/")) {
-                appList.add(ApplicationListModel(app.packageName, app.sourceDir))
-            }
-        }
-        return appList
     }
 
     private fun updateButtonListener() {
@@ -80,6 +56,59 @@ class MainActivity : AppCompatActivity() {
                 updateModel()
             }
         }
+    }
+
+    private fun scanButtonListener() {
+        val scanButton = findViewById<Button>(R.id.scan_btn)
+        val scanResultEditText = findViewById<EditText>(R.id.app_scan_result)
+        var string = ""
+        scanButton.setOnClickListener {
+            GlobalScope.launch(Dispatchers.Default) {
+                runOnUiThread() {
+                    scanResultEditText.setText("Scanning...")
+                }
+                string = scanApplications()
+                runOnUiThread {
+                    scanResultEditText.setText(string)
+                }
+            }
+        }
+
+    }
+
+    private fun getApps(): Collection<ApplicationModel> {
+        val appList = ArrayList<ApplicationModel>()
+        // get package manager
+        val pm = packageManager
+        // get a list of installed apps.
+        val apps = pm.getInstalledApplications(0)
+        for(app in apps) {
+            // user installed apps go in /data/app/
+            // this checks so we do not scan system apps
+            if(app.sourceDir.startsWith("/data/app/")) {
+                appList.add(ApplicationModel(app.packageName, pm.getApplicationLabel(app).toString(), app.sourceDir, pm.getApplicationIcon(app.packageName)))
+            }
+        }
+        return appList
+    }
+
+    // scan all checked applications in the recycler view
+    private fun scanApplications() : String {
+        val scanText = StringBuilder()
+        val scanner = AppScanner(createORTSession(OrtEnvironment.getEnvironment()), featuresMap)
+
+        // for testing purposes
+        // scanner.runTest()
+
+        for (app in apps) {
+            var result: Long = 0
+            if(selectedApps[apps.indexOf(app)]) {
+                result = scanner.scan(app)
+                //write a line in the text view to show the result of the scan
+                scanText.append("${app.appName} : $result\n")
+            }
+        }
+        return scanText.toString()
     }
 
     private fun updateModel() {
@@ -96,44 +125,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-
-    private fun getPermissions() {
-        // get package manager
-        val pm = packageManager
-        // get a list of installed apps.
-        val apps = pm.getInstalledApplications(0)
-        // log all installed applications to the console
-        for (app in apps) {
-            Log.d("installed", "Installed package :" + app.packageName)
-            Log.d("installed", "Source dir : " + app.sourceDir)
-            Log.d("installed", "Launch Activity :" + pm.getLaunchIntentForPackage(app.packageName))
-        }
-
-        var featureMap = HashMap<String, Float>()
-        for (app in apps) {
-            if(app.sourceDir.startsWith("/data/app/")) {
-                featureMap = parseManifest(getManifest(app.sourceDir))
-                for (feature in featureMap) {
-                    Log.d("feature for ${app.packageName}", feature.key + ": " + feature.value)
-                }
-            }
-            if(app.sourceDir.startsWith("/data/app/")) {
-                for (feature in featureMap.keys) {
-                    if (feature in features.keys) {
-                        features[feature] = 1.0f
-                    }
-                }
-                var res = getInferenceResult()
-                Log.d("Final Inference result for ${app.packageName}", res.toString())
-                for (key in features.keys) {
-                    features[key] = 0.0f
-                }
-            }
-            //reset features
-
-        }
-
-    }
 
     // set date and base model shared preferences if there are none
     private fun setDefaultSharedPreferences() {
@@ -157,23 +148,30 @@ class MainActivity : AppCompatActivity() {
         val sharedPref = this.getPreferences(Context.MODE_PRIVATE) ?: return false
         val date = sharedPref.getString("date", "01/06/2023")
         val url = URL("$SERVER_URL/api/date")
-        val connection = url.openConnection()
-        var data = connection.getInputStream().bufferedReader().readText()
-        //get the Json value for date in data object
-        data = data.substring(data.indexOf(":") + 2, data.indexOf("}") - 1)
+        var data = ""
+        try {
+            val connection = url.openConnection()
+            var data = connection.getInputStream().bufferedReader().readText()
+            //get the Json value for date in data object
+            data = data.substring(data.indexOf(":") + 2, data.indexOf("}") - 1)
 
 
-        val dateFormat = SimpleDateFormat("dd/mm/yyyy")
-        val localDate = date?.let { dateFormat.parse(it) }
-        val remoteDate = dateFormat.parse(data)
-        Log.d("local date", localDate.toString())
-        Log.d("remote date", remoteDate.toString())
+            val dateFormat = SimpleDateFormat("dd/mm/yyyy")
+            val localDate = date?.let { dateFormat.parse(it) }
+            val remoteDate = dateFormat.parse(data)
+            Log.d("local date", localDate.toString())
+            Log.d("remote date", remoteDate.toString())
 
-        if (remoteDate != null) {
-            Log.d("is update needed", remoteDate.after(localDate).toString())
-            return remoteDate.after(localDate)
+            if (remoteDate != null) {
+                Log.d("is update needed", remoteDate.after(localDate).toString())
+                return remoteDate.after(localDate)
+            }
+        } catch (e: Exception) {
+            // send a notification that the connection failed
+            Log.d("isUpdateNeeded", "Connection failed")
+        } finally {
+            return false
         }
-        return false
     }
 
     // download a file into internal storage from a url
@@ -196,39 +194,17 @@ class MainActivity : AppCompatActivity() {
     }
 
 
-    private fun parseManifest(xmlString: String): HashMap<String, Float> {
-        val hashMap:HashMap<String, Float> = HashMap()
-        val factory = XmlPullParserFactory.newInstance()
-        val parser = factory.newPullParser()
-        val input = xmlString.reader()
-        parser.setInput(input)
-        var eventType = parser.eventType
-        while (eventType != XmlPullParser.END_DOCUMENT) {
-            var name = parser.name
-            if(name != null) {
-                when (name) {
-                    "uses-permission" ->
-                        hashMap[parser.getAttributeValue(null, "android:name")] = 1.0f
-                    "uses-feature" -> hashMap[parser.getAttributeValue(null, "android:name")] = 1.0f
-                    "action" -> hashMap[parser.getAttributeValue(null, "android:name")] = 1.0f
-                    else -> {}
-                }
-            }
-            eventType = parser.next()
-        }
-        return hashMap
-    }
+
 
     // create ort session
-    private fun createORTSession(ortEnvironment: OrtEnvironment) : OrtSession {
+    private fun createORTSession(ortEnvironment: OrtEnvironment): OrtSession {
         val modelBytes = resources.openRawResource(R.raw.sk_rf_model).readBytes()
-        val session = ortEnvironment.createSession(modelBytes)
-        return session
+        return ortEnvironment.createSession(modelBytes)
     }
 
     // read the hardware, permissions and intents txt files and convert them to an hashmap of strings
-    private fun readFeatures() : HashMap<String, Float> {
-        val hashMap:HashMap<String, Float> = HashMap()
+    private fun readFeatures() : LinkedHashMap<String, Float> {
+        val hashMap:LinkedHashMap<String, Float> = LinkedHashMap()
         val permissions = resources.openRawResource(R.raw.permissions).bufferedReader().useLines { it.toList() }
         val intents = resources.openRawResource(R.raw.intent).bufferedReader().useLines { it.toList() }
         val hardware = resources.openRawResource(R.raw.hardware).bufferedReader().useLines { it.toList() }
@@ -238,52 +214,12 @@ class MainActivity : AppCompatActivity() {
         return hashMap
     }
 
-    // create a float array from the hashmap values
-    private fun createFloatArray(hashMap: HashMap<String, Float>) : FloatArray {
-        val floatArray = FloatArray(hashMap.size)
-        var i = 0
-        hashMap.values.forEach { floatArray[i++] = it}
-        return floatArray
+    // read the hardware, permissions and intents txt files and convert them to an array of strings
+    private fun readFeaturesArray() : ArrayList<String> {
+        val permissions = resources.openRawResource(R.raw.permissions).bufferedReader().useLines { it.toList() }
+        val intents = resources.openRawResource(R.raw.intent).bufferedReader().useLines { it.toList() }
+        val hardware = resources.openRawResource(R.raw.hardware).bufferedReader().useLines { it.toList() }
+        return ArrayList(permissions + intents + hardware)
     }
-
-    // run inference
-    private fun runInference( input: FloatArray, ortSession: OrtSession, ortEnvironment: OrtEnvironment) : LongArray {
-        val inputName = ortSession.inputNames?.iterator()?.next()
-
-        val floatBufferInput = FloatBuffer.wrap(input)
-        // create input tensor
-        val inputTensor = OnnxTensor.createTensor(ortEnvironment, floatBufferInput, longArrayOf(1, 613))
-        val results = ortSession.run( mapOf( inputName to inputTensor ) )
-        val out = results.get(0).value as LongArray
-        Log.d("Ml-output-info", out[0].toString())
-        for (i in out.indices) {
-            Log.d("Ml-output-index", out[i].toString())
-        }
-        Log.d("Ml-output-size", out.size.toString())
-        return out
-    }
-
-
-    // print results from inference
-    private fun getInferenceResult() : Long {
-        val random = createFloatArray(readFeatures())
-        Log.d("random size", random.size.toString())
-        val result = runInference(random, createORTSession(OrtEnvironment.getEnvironment()), OrtEnvironment.getEnvironment())
-        // log result
-        //Log.d("result of inference", result.toString())
-        return result[0]
-    }
-
-    // get manifest from apk file
-    fun getManifest(s: String): String {
-        try {
-            ApkFile(File(s)).use { apkFile -> return apkFile.manifestXml }
-        } catch (e: IOException) {
-            e.printStackTrace()
-        }
-        return "Error While Fetching Manifest"
-    }
-
-    // create a float array with values 0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1.0,0.0,1.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1.0,1.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,1.0,1.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1.0,1.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0
 
 }

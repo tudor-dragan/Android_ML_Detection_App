@@ -2,6 +2,7 @@ package com.example.myapplication3
 
 import android.app.DownloadManager
 import android.content.Context
+import androidx.appcompat.content.res.AppCompatResources
 import androidx.core.net.toUri
 
 class ModelDownloader(private val context: Context) {
