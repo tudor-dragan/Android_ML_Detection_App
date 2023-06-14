@@ -1,9 +1,7 @@
 package com.example.myapplication3
 
-import android.annotation.SuppressLint
 import android.app.DownloadManager
 import android.content.Context
-import androidx.appcompat.content.res.AppCompatResources
 import androidx.core.net.toUri
 
 var fileName = "sk_rf_model.onnx"
@@ -12,6 +10,10 @@ class ModelDownloader(private val context: Context) {
     private val downloadManager = context.getSystemService(DownloadManager::class.java)
     var downloadId: Long = -1L
 
+    /*
+    * Download a model file from a given url. If the file already exists, delete it first.
+    * @param url: the url to download the model from (the server)
+     */
     fun downloadModel(url: String): Long {
         if(modelExists()) {
             deleteModel()

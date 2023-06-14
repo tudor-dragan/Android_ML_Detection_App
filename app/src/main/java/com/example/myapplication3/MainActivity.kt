@@ -2,12 +2,8 @@ package com.example.myapplication3
 
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
-import android.app.DownloadManager
 import android.content.Context
-import android.net.Uri
 import android.os.Bundle
-import android.os.Environment
-import android.util.Log
 import android.widget.Button
 import android.widget.EditText
 import androidx.appcompat.app.AppCompatActivity
@@ -18,7 +14,7 @@ import kotlinx.coroutines.launch
 import java.io.File
 import java.net.URL
 import java.text.SimpleDateFormat
-import kotlin.math.log
+
 
 val SERVER_URL = "http://192.168.0.104:5000"
 
@@ -28,15 +24,17 @@ class MainActivity : AppCompatActivity() {
     private var selectedApps = BooleanArray(0)
     private var modelDownloader: ModelDownloader? = null
     private var receiver: ModelDownloadCompleteReceiver? = null
+    private var textBox: EditText? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         // creates the empty hash map of features that the model will use
-        apps.addAll(getApps())
-        featuresMap = readFeatures()
-        selectedApps = BooleanArray(apps.size)
+        apps.addAll(getApps()) // add user installed apps to the list
+        featuresMap = readFeatures() // read the features from the permissions, intents, and hardwdare files located in /res/raw
+        selectedApps = BooleanArray(apps.size) // create a boolean array to keep track of which apps are selected in the UI
         modelDownloader = ModelDownloader(this)
+        textBox = findViewById(R.id.app_scan_result) // the textbox output for the scan results
 
         setDefaultSharedPreferences()
         setUpRecyclerView(apps)
@@ -51,60 +49,70 @@ class MainActivity : AppCompatActivity() {
     }
 
     // set date and base model shared preferences if there are none
+    // this should only happen when the application is installed for the first time
     private fun setDefaultSharedPreferences() {
         val sharedPreferences = this.getSharedPreferences("com.example.myapplication3", Context.MODE_PRIVATE)
         if(sharedPreferences.contains("date")) {
-            Log.d("shared preferences", "date already exists ${sharedPreferences.getString("date", "01/06/1990")}")
             return
         }
         with (sharedPreferences.edit()) {
-            Log.d("shared preferences", "date does not exist")
-            putString("date", "01/06/2020")
-            putString("modelUsed", "base")
-            putBoolean("modelReady", true)
+            putString("date", "01/06/2020") // to check for a model update request
+            putString("modelUsed", "base") // to know where to load the model from
+            putBoolean("modelReady", true) // to know if the model is ready to be used after a download
             commit()
         }
     }
 
+    // set up the components of the recycler view
     private fun setUpRecyclerView(apps : ArrayList<ApplicationModel>) {
         val recyclerView = findViewById<RecyclerView>(R.id.app_list)
         recyclerView.adapter = ListItemAdapter(this, apps, selectedApps)
         recyclerView.setHasFixedSize(true)
     }
 
+    // update the model if the date of the model is older than the date of the last update
     private fun updateButtonListener() {
         val updateButton = findViewById<Button>(R.id.update_btn)
         updateButton.setOnClickListener {
             GlobalScope.launch(Dispatchers.IO) {
-                updateModel()
+                if(isUpdateNeeded()){
+                    runOnUiThread {
+                        textBox?.setText("Updating model. Check download notification for progress.")
+                    }
+                    updateModel()
+                } else {
+                    runOnUiThread {
+                        textBox?.setText("Model is up to date")
+                    }
+                }
             }
         }
     }
 
+    // scan all applications selected in the UI
     private fun scanButtonListener() {
         val scanButton = findViewById<Button>(R.id.scan_btn)
-        val scanResultEditText = findViewById<EditText>(R.id.app_scan_result)
-        var string = ""
+        var string: String
         scanButton.setOnClickListener {
             if(this.getSharedPreferences("com.example.myapplication3", Context.MODE_PRIVATE).getBoolean("modelReady", false)) {
                 GlobalScope.launch(Dispatchers.Default) {
                     runOnUiThread() {
-                        scanResultEditText.setText("Scanning...")
+                        textBox?.setText("Scanning...")
                     }
                     string = scanApplications()
                     runOnUiThread {
-                        scanResultEditText.setText(string)
+                        textBox?.setText(string)
                     }
                 }
             } else {
-                scanResultEditText.setText("Model not ready")
+                textBox?.setText("Model not ready")
             }
         }
     }
 
+    // get the user-installed apps on the device
     private fun getApps(): Collection<ApplicationModel> {
         val appList = ArrayList<ApplicationModel>()
-        // get package manager
         val pm = packageManager
         // get a list of installed apps.
         val apps = pm.getInstalledApplications(0)
@@ -125,7 +133,7 @@ class MainActivity : AppCompatActivity() {
         val scanner = AppScanner(createORTSession(OrtEnvironment.getEnvironment()), featuresMap)
 
         for (app in apps) {
-            var result: Long = 0
+            var result: Long
             if(selectedApps[apps.indexOf(app)]) {
                 result = scanner.scan(app)
                 //write a line in the text view to show the result of the scan
@@ -135,67 +143,64 @@ class MainActivity : AppCompatActivity() {
         return scanText.toString()
     }
 
+    // fetch the model from the server and update the model
     private fun updateModel() {
-        if(isUpdateNeeded()) {
-            if(receiver != null) {
-                unregisterReceiver(receiver)
-            }
-            val downloadId = modelDownloader!!.downloadModel("$SERVER_URL/static/sk_rf_model.onnx")
-            val sharedPreferences = this.getSharedPreferences("com.example.myapplication3", Context.MODE_PRIVATE)
-            sharedPreferences.edit().putBoolean("modelReady", false).apply()
-            receiver = ModelDownloadCompleteReceiver(downloadId, sharedPreferences, SERVER_URL)
-            registerReceiver(receiver, receiver!!.filter)
-            Log.d("updateModel", "Model is updating")
-        } else {
-            Log.d("updateModel", "Model is up to date")
+        // unregister the receiver if it is already registered
+        if(receiver != null) {
+            unregisterReceiver(receiver)
         }
+        // set a download id and register the receiver
+        val downloadId = modelDownloader!!.downloadModel("$SERVER_URL/static/sk_rf_model.onnx")
+        val sharedPreferences = this.getSharedPreferences("com.example.myapplication3", Context.MODE_PRIVATE)
+        sharedPreferences.edit().putBoolean("modelReady", false).apply()
+        receiver = ModelDownloadCompleteReceiver(downloadId, sharedPreferences, SERVER_URL)
+        registerReceiver(receiver, receiver!!.filter)
     }
 
 
-    // function that will go to a url (http://127.0.0.1:5000/api/date) and
+    // function that will go to the server and
     // compare the date returned as json by the url with the date in shared preferences
     private fun isUpdateNeeded() : Boolean{
         val sharedPref = this.getSharedPreferences("com.example.myapplication3", Context.MODE_PRIVATE)
-        val date = sharedPref.getString("date", "01/06/2023")
+        val date = sharedPref.getString("date", "01/06/2023") // local model date
         val url = URL("$SERVER_URL/api/date")
-        var data = ""
         try {
             val connection = url.openConnection()
             var data = connection.getInputStream().bufferedReader().readText()
             //get the Json value for date in data object
-            data = data.substring(data.indexOf(":") + 2, data.indexOf("}") - 1)
+            data = data.substring(data.indexOf(":") + 2, data.indexOf("}") - 1) // remote model date
             val dateFormat = SimpleDateFormat("dd/mm/yyyy")
             val localDate = date?.let { dateFormat.parse(it) }
             val remoteDate = dateFormat.parse(data)
-            Log.d("local date", localDate.toString())
-            Log.d("remote date", remoteDate.toString())
             if (remoteDate != null) {
-                Log.d("is update needed", remoteDate.after(localDate).toString())
                 return remoteDate.after(localDate)
             }
         } catch (e: Exception) {
             // send a notification that the connection failed
-            Log.d("isUpdateNeeded", "Connection failed")
+            runOnUiThread() {
+                textBox?.setText("Connection to server failed")
+            }
             return false
         }
         return false
     }
 
-    // create ort session
+    /*
+    * This function will create an ort session from the model in the resources folder
+    * or from the model in the external files directory if it exists
+     */
     private fun createORTSession(ortEnvironment: OrtEnvironment): OrtSession {
         // if using base model in shared preferences then load the model in resources
         val sharedPreferences = this.getSharedPreferences("com.example.myapplication3", Context.MODE_PRIVATE)
         val fileName = sharedPreferences.getString("modelUsed", "base")
-        Log.d("loading model", "model loaded: $fileName")
-        Log.d("loading model", "model loaded: ${sharedPreferences.getString("modelUsed", "notbase")}")
+
+        // if using the base model or if the external files directory does not exist
         if ( fileName == "base") {
             val modelBytes = resources.openRawResource(R.raw.sk_rf_model).readBytes()
             return ortEnvironment.createSession(modelBytes)
         } else if (this.getExternalFilesDir(null) != null){
-
             val latestModel = getMostRecentFile(this.getExternalFilesDir(null))
             try {
-                Log.d("loading model", "model loaded: ${latestModel.name}")
                 val modelBytes = latestModel.readBytes()
                 return ortEnvironment.createSession(modelBytes)
             } catch (e: Exception) {
@@ -208,14 +213,16 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // get the most recent file in the downloads directory with the .onnx extension
+    /*
+    * This function will return the most recent file in the directory with the .onnx extension
+    * This is meant to retrieve the most recent model downloaded from the server
+     */
     private fun getMostRecentFile(directory: File?) : File {
         if(directory == null) {
             this
             return File("")
         }
         val files = directory.listFiles()
-        Log.d("files", files.toString())
         var mostRecentFile = files[0]
         for (file in files) {
             if(file.lastModified() > mostRecentFile.lastModified() && file.name.endsWith(".onnx")) {
@@ -225,7 +232,12 @@ class MainActivity : AppCompatActivity() {
         return mostRecentFile
     }
 
-    // read the hardware, permissions and intents txt files and convert them to an hashmap of strings
+    /*
+    * This function will read the features from the txt files in the raw folder
+    * and return a linked hash map of the features
+    * The features are the permissions, intents and hardware features
+    * A linked hash map is used to preserve the order of the features
+     */
     private fun readFeatures() : LinkedHashMap<String, Float> {
         val hashMap:LinkedHashMap<String, Float> = LinkedHashMap()
         val permissions = resources.openRawResource(R.raw.permissions).bufferedReader().useLines { it.toList() }

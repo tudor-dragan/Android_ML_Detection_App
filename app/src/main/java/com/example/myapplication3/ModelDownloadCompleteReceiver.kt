@@ -20,7 +20,12 @@ import java.time.LocalDateTime
 
 class ModelDownloadCompleteReceiver(private val downloadId: Long, private val sharedPreferences: SharedPreferences, private val SERVER_URL: String) : BroadcastReceiver() {
     val filter = IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE)
-    // when the model file is finished downloading, set the shared preferences to indicate that the model is ready to use
+
+    /*
+    * When the download is complete, get the uri of the downloaded file and save it to shared preferences.
+    * Also save the date of the model to shared preferences.
+    * This uses a downloadId to identify the download that was completed was the one that was started by this app.
+     */
     @SuppressLint("Range")
     override fun onReceive(context: Context?, intent: Intent?) {
         if(intent?.action == DownloadManager.ACTION_DOWNLOAD_COMPLETE) {
@@ -35,12 +40,9 @@ class ModelDownloadCompleteReceiver(private val downloadId: Long, private val sh
                         val uri = cursor.getString(cursor.getColumnIndex(DownloadManager.COLUMN_LOCAL_URI))
                         if(uri != null) {
                             val modelFile = File(uri)
-                            Log.d("ModelDownloadCompleteReceiver", "${modelFile.name} downloaded")
-                            Log.d("ModelDownloaderReceiver", "path: ${modelFile.absolutePath}")
                             GlobalScope.launch(Dispatchers.IO) {
                                 val remoteDate = getDate()
                                 sharedPreferences.edit().putString("date", remoteDate).apply()
-                                Log.d("After editing shared pref", "date: ${sharedPreferences.getString("date", "01/01/1999")}")
                             }
 
                             with (sharedPreferences.edit()) {
@@ -48,12 +50,6 @@ class ModelDownloadCompleteReceiver(private val downloadId: Long, private val sh
                                 putBoolean("modelReady", true)
                                 commit()
                             }
-                            Log.d("ModelDownloadCompleteReceiver", "date: ${sharedPreferences.getString("date", "01/01/2020")}")
-                            Log.d("ModelDownloadCompleteReceiver", "modelUsed: ${sharedPreferences.getString("modelUsed", "base")}")
-//                            if(modelFile.exists()) {
-//                                val sharedPreferences = context.getSharedPreferences("com.example.myapplication3", Context.MODE_PRIVATE)
-//                                sharedPreferences.edit().putBoolean("modelReady", true).apply()
-//                            }
                         }
                     }
                 }
@@ -61,6 +57,7 @@ class ModelDownloadCompleteReceiver(private val downloadId: Long, private val sh
         }
     }
 
+    // get the date of the model from the server
     private fun getDate() : String {
         val url = URL("$SERVER_URL/api/date")
         return try {
@@ -68,52 +65,10 @@ class ModelDownloadCompleteReceiver(private val downloadId: Long, private val sh
             var data = connection.getInputStream().bufferedReader().readText()
             //get the Json value for date in data object
             data = data.substring(data.indexOf(":") + 2, data.indexOf("}") - 1)
-            Log.d("getDate form url", "date: $data")
             data
         } catch (e: Exception) {
             e.printStackTrace()
-            Log.d("getDate form url", "date: fell into exception")
             "01/01/2020"
         }
     }
-
-    // old on receive function
-//    override fun onReceive(context: Context?, intent: Intent?) {
-//        if(intent?.action == DownloadManager.ACTION_DOWNLOAD_COMPLETE) {
-//            val id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1)
-//            if(id != -1L) {
-//                val downloadManager = context?.getSystemService(DownloadManager::class.java)
-//                val query = DownloadManager.Query().setFilterById(downloadId)
-//                val cursor = downloadManager?.query(query)
-//                if(cursor?.moveToFirst() == true) {
-//                    val status = cursor.getInt(cursor.getColumnIndex(DownloadManager.COLUMN_STATUS))
-//                    if(status == DownloadManager.STATUS_SUCCESSFUL) {
-//                        val uri = cursor.getString(cursor.getColumnIndex(DownloadManager.COLUMN_LOCAL_URI))
-//                        if(uri != null) {
-//                            val modelFile = File(uri)
-//                            Log.d("ModelDownloadCompleteReceiver", "${modelFile.name} downloaded")
-//                            Log.d("ModelDownloaderReceiver", "path: ${modelFile.absolutePath}")
-//                            GlobalScope.launch(Dispatchers.IO) {
-//                                val remoteDate = getDate()
-//                                sharedPreferences.edit().putString("date", remoteDate).apply()
-//                                Log.d("After editing shared pref", "date: ${sharedPreferences.getString("date", "01/01/1999")}")
-//                            }
-//
-//                            with (sharedPreferences.edit()) {
-//                                putString("modelUsed", modelFile.name)
-//                                putBoolean("modelReady", true)
-//                                commit()
-//                            }
-//                            Log.d("ModelDownloadCompleteReceiver", "date: ${sharedPreferences.getString("date", "01/01/2020")}")
-//                            Log.d("ModelDownloadCompleteReceiver", "modelUsed: ${sharedPreferences.getString("modelUsed", "base")}")
-////                            if(modelFile.exists()) {
-////                                val sharedPreferences = context.getSharedPreferences("com.example.myapplication3", Context.MODE_PRIVATE)
-////                                sharedPreferences.edit().putBoolean("modelReady", true).apply()
-////                            }
-//                        }
-//                    }
-//                }
-//            }
-//        }
-//    }
 }

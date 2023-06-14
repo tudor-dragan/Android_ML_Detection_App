@@ -3,7 +3,6 @@ package com.example.myapplication3
 import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
-import android.util.Log
 import net.dongliu.apk.parser.ApkFile
 import org.xmlpull.v1.XmlPullParser
 import org.xmlpull.v1.XmlPullParserFactory
@@ -11,6 +10,11 @@ import java.io.File
 import java.io.IOException
 import java.nio.FloatBuffer
 
+/*
+    * This class is used to scan one or multiple applications and return the result
+    * @param ortSession: the session of the machine learning model
+    * @param features: the features that the model will use
+ */
 class AppScanner(private val ortSession: OrtSession, private val features: MutableMap<String, Float>) {
 
     // scan the app and return the result
@@ -23,6 +27,12 @@ class AppScanner(private val ortSession: OrtSession, private val features: Mutab
     }
 
     // parse the manifest file
+    /*
+    * This function parses the manifest file of an application and checks for permissions, features and intent filters
+    * It sets the value of the features hash map that are found to 1.0.
+    * @param xmlString: the manifest file as a string
+    *
+     */
     private fun parseManifest(xmlString: String){
         //Initialize the parser
         val factory = XmlPullParserFactory.newInstance()
@@ -32,28 +42,25 @@ class AppScanner(private val ortSession: OrtSession, private val features: Mutab
         // parse the xml
         var eventType = parser.eventType
         while (eventType != XmlPullParser.END_DOCUMENT) {
-            var name = parser.name
+            val name = parser.name
             if(name != null) {
                 when (name) {
                     // check for permissions
                     "uses-permission" -> parser.getAttributeValue(null, "android:name")?.let {
                         if(features.containsKey(it)) {
                             features[it] = 1.0f
-                            Log.d("Ml-permission", it)
                         }
                     }
                     // check for features
                     "uses-feature" -> parser.getAttributeValue(null, "android:name")?.let {
                         if(features.containsKey(it)) {
                             features[it] = 1.0f
-                            Log.d("Ml-feature", it)
                         }
                     }
                     // check for intent filters
                     "action" -> parser.getAttributeValue(null, "android:name")?.let {
                         if(features.containsKey(it)) {
                             features[it] = 1.0f
-                            Log.d("Ml-action", it)
                         }
                     }
                     else -> {}
@@ -76,24 +83,24 @@ class AppScanner(private val ortSession: OrtSession, private val features: Mutab
 
     // get the inference result
     private fun getInferenceResult(input: FloatArray) : Long {
-        val testInput = createInput()
+
         val result = runInference(input, ortSession, OrtEnvironment.getEnvironment())
         return result[0]
     }
 
     // run inference
-    private fun runInference(input: FloatArray, ortSession: OrtSession, ortEnvironment: OrtEnvironment) : LongArray {
+    private fun runInference(
+        input: FloatArray,
+        ortSession: OrtSession,
+        ortEnvironment: OrtEnvironment
+    ): LongArray {
         val inputName = ortSession.inputNames?.iterator()?.next()
         val floatBufferInput = FloatBuffer.wrap(input)
         // create input tensor
-        val inputTensor = OnnxTensor.createTensor(ortEnvironment, floatBufferInput, longArrayOf(1, 613))
-        val results = ortSession.run( mapOf( inputName to inputTensor ) )
-        val out = results.get(0).value as LongArray
-        Log.d("Ml-output-info", out[0].toString())
-        for (i in out.indices) {
-            //Log.d("Ml-output-index", out[i].toString())
-        }
-        return out
+        val inputTensor =
+            OnnxTensor.createTensor(ortEnvironment, floatBufferInput, longArrayOf(1, 613))
+        val results = ortSession.run(mapOf(inputName to inputTensor))
+        return results.get(0).value as LongArray
     }
 
     // get manifest from apk file
@@ -106,16 +113,5 @@ class AppScanner(private val ortSession: OrtSession, private val features: Mutab
         return "Error While Fetching Manifest"
     }
 
-    // test the model
-    fun runTest() {
-        val input = createInput()
-        val result = getInferenceResult(input)
-        Log.d("Ml-test-result", result.toString())
-    }
-
-    // create input for testing
-    private fun createInput() : FloatArray {
-        return floatArrayOf(0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f)
-    }
 
 }
