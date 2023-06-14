@@ -1,20 +1,40 @@
 package com.example.myapplication3
 
+import android.annotation.SuppressLint
 import android.app.DownloadManager
 import android.content.Context
 import androidx.appcompat.content.res.AppCompatResources
 import androidx.core.net.toUri
 
+var fileName = "sk_rf_model.onnx"
+
 class ModelDownloader(private val context: Context) {
     private val downloadManager = context.getSystemService(DownloadManager::class.java)
+    var downloadId: Long = -1L
 
-    fun downloadModel(url: String, fileName: String): Long {
+    fun downloadModel(url: String): Long {
+        if(modelExists()) {
+            deleteModel()
+        }
         val request = DownloadManager.Request(url.toUri())
         request.setDestinationInExternalFilesDir(context, null, fileName)
             .setAllowedNetworkTypes(DownloadManager.Request.NETWORK_WIFI or DownloadManager.Request.NETWORK_MOBILE)
             .setTitle("Downloading model")
             .setDescription("Downloading model")
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-        return downloadManager.enqueue(request)
+        downloadId = downloadManager.enqueue(request)
+        return downloadId
+    }
+
+    // check if a model file already exists
+    private fun modelExists(): Boolean {
+        val file = context.getExternalFilesDir(null)?.listFiles()?.find { it.name == fileName }
+        return file != null
+    }
+
+    // delete a model file
+    private fun deleteModel() {
+        val file = context.getExternalFilesDir(null)?.listFiles()?.find { it.name == fileName }
+        file?.delete()
     }
 }
