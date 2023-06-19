@@ -137,7 +137,11 @@ class MainActivity : AppCompatActivity() {
             if(selectedApps[apps.indexOf(app)]) {
                 result = scanner.scan(app)
                 //write a line in the text view to show the result of the scan
-                scanText.append("${app.appName} : $result\n")
+                scanText.append("${app.appName} : ${if(result == 1L){
+                    "Malicious"
+                } else {
+                    "Benign"
+                }}\n")
             }
         }
         return scanText.toString()
