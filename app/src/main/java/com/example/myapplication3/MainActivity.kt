@@ -4,6 +4,7 @@ import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
 import android.content.Context
 import android.os.Bundle
+import android.util.Log
 import android.widget.Button
 import android.widget.EditText
 import androidx.appcompat.app.AppCompatActivity
@@ -131,7 +132,6 @@ class MainActivity : AppCompatActivity() {
     private fun scanApplications() : String {
         val scanText = StringBuilder()
         val scanner = AppScanner(createORTSession(OrtEnvironment.getEnvironment()), featuresMap)
-
         for (app in apps) {
             var result: Long
             if(selectedApps[apps.indexOf(app)]) {
@@ -197,10 +197,12 @@ class MainActivity : AppCompatActivity() {
         // if using base model in shared preferences then load the model in resources
         val sharedPreferences = this.getSharedPreferences("com.example.myapplication3", Context.MODE_PRIVATE)
         val fileName = sharedPreferences.getString("modelUsed", "base")
+        val model = R.raw.sk_svc_model
+
 
         // if using the base model or if the external files directory does not exist
         if ( fileName == "base") {
-            val modelBytes = resources.openRawResource(R.raw.sk_rf_model).readBytes()
+            val modelBytes = resources.openRawResource(model).readBytes()
             return ortEnvironment.createSession(modelBytes)
         } else if (this.getExternalFilesDir(null) != null){
             val latestModel = getMostRecentFile(this.getExternalFilesDir(null))
@@ -208,11 +210,11 @@ class MainActivity : AppCompatActivity() {
                 val modelBytes = latestModel.readBytes()
                 return ortEnvironment.createSession(modelBytes)
             } catch (e: Exception) {
-                val modelBytes = resources.openRawResource(R.raw.sk_rf_model).readBytes()
+                val modelBytes = resources.openRawResource(model).readBytes()
                 return ortEnvironment.createSession(modelBytes)
             }
         } else {
-            val modelBytes = resources.openRawResource(R.raw.sk_rf_model).readBytes()
+            val modelBytes = resources.openRawResource(model).readBytes()
             return ortEnvironment.createSession(modelBytes)
         }
     }

@@ -83,7 +83,6 @@ class AppScanner(private val ortSession: OrtSession, private val features: Mutab
 
     // get the inference result
     private fun getInferenceResult(input: FloatArray) : Long {
-
         val result = runInference(input, ortSession, OrtEnvironment.getEnvironment())
         return result[0]
     }
