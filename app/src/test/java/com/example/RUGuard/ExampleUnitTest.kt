@@ -1,4 +1,4 @@
-package com.example.myapplication3
+package com.example.RUGuard
 
 import org.junit.Test
 

@@ -1,4 +1,4 @@
-package com.example.myapplication3
+package com.example.RUGuard
 
 import android.annotation.SuppressLint
 import android.app.DownloadManager
@@ -7,16 +7,11 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.SharedPreferences
-import android.util.Log
-import android.widget.Toast
-import androidx.core.content.edit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
 import java.io.File
 import java.net.URL
-import java.text.SimpleDateFormat
-import java.time.LocalDateTime
 
 class ModelDownloadCompleteReceiver(private val downloadId: Long, private val sharedPreferences: SharedPreferences, private val SERVER_URL: String) : BroadcastReceiver() {
     val filter = IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE)
